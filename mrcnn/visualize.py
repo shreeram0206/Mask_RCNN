@@ -1,5 +1,5 @@
 """
-Mask R-CNN
+Faster R-CNN
 Display and Visualization Functions.
 
 Copyright (c) 2017 Matterport, Inc.
