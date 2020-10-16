@@ -98,10 +98,7 @@ class Config(object):
     POST_NMS_ROIS_TRAINING = 2000
     POST_NMS_ROIS_INFERENCE = 1000
 
-    # If enabled, resizes instance masks to a smaller size to reduce
-    # memory load. Recommended when using high-resolution images.
     USE_MINI_MASK = False
-    # MINI_MASK_SHAPE = (56, 56)  # (height, width) of the mini-mask
 
     # Input image resizing
     # Generally, use the "square" resizing mode for training and predicting
@@ -151,11 +148,6 @@ class Config(object):
 
     # Pooled ROIs
     POOL_SIZE = 7
-    # MASK_POOL_SIZE = 14
-
-    # Shape of output mask
-    # To change this you also need to change the neural network mask branch
-    # MASK_SHAPE = [28, 28]
 
     # Maximum number of ground truth instances to use in one image
     MAX_GT_INSTANCES = 100
@@ -174,10 +166,6 @@ class Config(object):
     # Non-maximum suppression threshold for detection
     DETECTION_NMS_THRESHOLD = 0.3
 
-    # Learning rate and momentum
-    # The Mask RCNN paper uses lr=0.02, but on TensorFlow it causes
-    # weights to explode. Likely due to differences in optimizer
-    # implementation.
     LEARNING_RATE = 0.001
     LEARNING_MOMENTUM = 0.9
 
