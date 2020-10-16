@@ -1,5 +1,5 @@
 """
-Mask R-CNN
+Faster R-CNN
 Multi-GPU Support for Keras.
 
 Copyright (c) 2017 Matterport, Inc.
