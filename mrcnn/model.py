@@ -22,7 +22,7 @@ import tensorflow.keras.utils as KU
 from tensorflow.python.eager import context
 import tensorflow.keras.models as KM
 
-from mrcnn import utils
+from .mrcnn_utils import *
 
 # Requires TensorFlow 2.0+
 from distutils.version import LooseVersion
@@ -74,15 +74,16 @@ def compute_backbone_shapes(config, image_shape):
     Returns:
         [N, (height, width)]. Where N is the number of stages
     """
-    if callable(config.BACKBONE):
-        return config.COMPUTE_BACKBONE_SHAPE(image_shape)
+    #if callable(config.BACKBONE):
+        #return config.COMPUTE_BACKBONE_SHAPE(image_shape)
 
     # Currently supports ResNet only
-    assert config.BACKBONE in ["resnet50", "resnet101"]
+    #assert config.BACKBONE in ["resnet50", "resnet101"]
     return np.array(
         [[int(math.ceil(image_shape[0] / stride)),
             int(math.ceil(image_shape[1] / stride))]
             for stride in config.BACKBONE_STRIDES])
+
 
 
 ############################################################
@@ -294,28 +295,28 @@ class ProposalLayer(KL.Layer):
         pre_nms_limit = tf.minimum(self.config.PRE_NMS_LIMIT, tf.shape(input=anchors)[1])
         ix = tf.nn.top_k(scores, pre_nms_limit, sorted=True,
                          name="top_anchors").indices
-        scores = utils.batch_slice([scores, ix], lambda x, y: tf.gather(x, y),
+        scores = batch_slice([scores, ix], lambda x, y: tf.gather(x, y),
                                    self.config.IMAGES_PER_GPU)
-        deltas = utils.batch_slice([deltas, ix], lambda x, y: tf.gather(x, y),
+        deltas = batch_slice([deltas, ix], lambda x, y: tf.gather(x, y),
                                    self.config.IMAGES_PER_GPU)
-        pre_nms_anchors = utils.batch_slice([anchors, ix], lambda a, x: tf.gather(a, x),
+        pre_nms_anchors = batch_slice([anchors, ix], lambda a, x: tf.gather(a, x),
                                     self.config.IMAGES_PER_GPU,
                                     names=["pre_nms_anchors"])
 
         # Apply deltas to anchors to get refined anchors.
         # [batch, N, (y1, x1, y2, x2)]
-        boxes = utils.batch_slice([pre_nms_anchors, deltas],
-                                  lambda x, y: apply_box_deltas_graph(x, y),
-                                  self.config.IMAGES_PER_GPU,
-                                  names=["refined_anchors"])
+        boxes = batch_slice([pre_nms_anchors, deltas],
+                            lambda x, y: apply_box_deltas_graph(x, y),
+                            self.config.IMAGES_PER_GPU,
+                            names=["refined_anchors"])
 
         # Clip to image boundaries. Since we're in normalized coordinates,
         # clip to 0..1 range. [batch, N, (y1, x1, y2, x2)]
         window = np.array([0, 0, 1, 1], dtype=np.float32)
-        boxes = utils.batch_slice(boxes,
-                                  lambda x: clip_boxes_graph(x, window),
-                                  self.config.IMAGES_PER_GPU,
-                                  names=["refined_anchors_clipped"])
+        boxes = batch_slice(boxes,
+                            lambda x: clip_boxes_graph(x, window),
+                            self.config.IMAGES_PER_GPU,
+                            names=["refined_anchors_clipped"])
 
         # Filter out small boxes
         # According to Xinlei Chen's paper, this reduces detection accuracy
@@ -331,8 +332,8 @@ class ProposalLayer(KL.Layer):
             padding = tf.maximum(self.proposal_count - tf.shape(input=proposals)[0], 0)
             proposals = tf.pad(tensor=proposals, paddings=[(0, padding), (0, 0)])
             return proposals
-        proposals = utils.batch_slice([boxes, scores], nms,
-                                      self.config.IMAGES_PER_GPU)
+        proposals = batch_slice([boxes, scores], nms,
+                                self.config.IMAGES_PER_GPU)
 
         if not context.executing_eagerly():
             # Infer the static output shape:
@@ -588,7 +589,7 @@ def detection_targets_graph(proposals, gt_class_ids, gt_boxes, config):
     roi_gt_class_ids = tf.gather(gt_class_ids, roi_gt_box_assignment)
 
     # Compute bbox refinement for positive ROIs
-    deltas = utils.box_refinement_graph(positive_rois, roi_gt_boxes)
+    deltas = box_refinement_graph(positive_rois, roi_gt_boxes)
     deltas /= config.BBOX_STD_DEV
 
     # Assign positive ROIs to GT masks
@@ -679,7 +680,7 @@ class DetectionTargetLayer(KL.Layer):
         # Slice the batch and run a graph for each slice
         # TODO: Rename target_bbox to target_deltas for clarity
         names = ["rois", "target_class_ids", "target_bbox"]
-        outputs = utils.batch_slice(
+        outputs = batch_slice(
             [proposals, gt_class_ids, gt_boxes],
             lambda w, x, y: detection_targets_graph(
                 w, x, y, self.config),
@@ -834,7 +835,7 @@ class DetectionLayer(KL.Layer):
         window = norm_boxes_graph(m['window'], image_shape[:2])
 
         # Run detection refinement graph on each item in the batch
-        detections_batch = utils.batch_slice(
+        detections_batch = batch_slice(
             [rois, mrcnn_class, mrcnn_bbox, window],
             lambda x, y, w, z: refine_detections_graph(x, y, w, z, self.config),
             self.config.IMAGES_PER_GPU)
@@ -1233,13 +1234,13 @@ def load_image_gt(dataset, config, image_id, augmentation=None):
     image = dataset.load_image(image_id)
     mask, class_ids = dataset.load_mask(image_id)
     original_shape = image.shape
-    image, window, scale, padding, crop = utils.resize_image(
+    image, window, scale, padding, crop = resize_image(
         image,
         min_dim=config.IMAGE_MIN_DIM,
         min_scale=config.IMAGE_MIN_SCALE,
         max_dim=config.IMAGE_MAX_DIM,
         mode=config.IMAGE_RESIZE_MODE)
-    mask = utils.resize_mask(mask, scale, padding, crop)
+    mask = resize_mask(mask, scale, padding, crop)
 
     # Augmentation
     # This requires the imgaug lib (https://github.com/aleju/imgaug)
@@ -1280,7 +1281,7 @@ def load_image_gt(dataset, config, image_id, augmentation=None):
     # Bounding boxes. Note that some boxes might be all zeros
     # if the corresponding mask got cropped out.
     # bbox: [num_instances, (y1, x1, y2, x2)]
-    bbox = utils.extract_bboxes(mask)
+    bbox = extract_bboxes(mask)
 
     # Active classes
     # Different datasets have different classes, so track the
@@ -1291,7 +1292,7 @@ def load_image_gt(dataset, config, image_id, augmentation=None):
 
     # Resize masks to smaller size to reduce memory usage
     if config.USE_MINI_MASK:
-        mask = utils.minimize_mask(bbox, mask, config.MINI_MASK_SHAPE)
+        mask = minimize_mask(bbox, mask, config.MINI_MASK_SHAPE)
 
     # Image meta data
     image_meta = compose_image_meta(image_id, original_shape, image.shape,
@@ -1688,11 +1689,11 @@ class DataGenerator(KU.Sequence):
         # Anchors
         # [anchor_count, (y1, x1, y2, x2)]
         self.backbone_shapes = compute_backbone_shapes(config, config.IMAGE_SHAPE)
-        self.anchors = utils.generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
-                                                      config.RPN_ANCHOR_RATIOS,
-                                                      self.backbone_shapes,
-                                                      config.BACKBONE_STRIDES,
-                                                      config.RPN_ANCHOR_STRIDE)
+        self.anchors = generate_pyramid_anchors(config.RPN_ANCHOR_SCALES,
+                                                config.RPN_ANCHOR_RATIOS,
+                                                self.backbone_shapes,
+                                                config.BACKBONE_STRIDES,
+                                                config.RPN_ANCHOR_STRIDE)
 
         self.shuffle = shuffle
         self.augmentation = augmentation
@@ -2350,7 +2351,7 @@ class MaskRCNN(object):
         # multiprocessing workers. See discussion here:
         # https://github.com/matterport/Mask_RCNN/issues/13#issuecomment-353124009
         if os.name == 'nt':
-            workers = 0
+            workers = 1
         else:
             workers = multiprocessing.cpu_count()
 
@@ -2364,7 +2365,7 @@ class MaskRCNN(object):
             validation_steps=self.config.VALIDATION_STEPS,
             max_queue_size=100,
             workers=workers,
-            use_multiprocessing=workers > 1,
+            use_multiprocessing=False,
         )
         self.epoch = max(self.epoch, epochs)
 
@@ -2439,7 +2440,7 @@ class MaskRCNN(object):
 
         # Translate normalized coordinates in the resized image to pixel
         # coordinates in the original image before resizing
-        window = utils.norm_boxes(window, image_shape[:2])
+        window = norm_boxes(window, image_shape[:2])
         wy1, wx1, wy2, wx2 = window
         shift = np.array([wy1, wx1, wy1, wx1])
         wh = wy2 - wy1  # window height
@@ -2448,7 +2449,7 @@ class MaskRCNN(object):
         # Convert boxes to normalized coordinates on the window
         boxes = np.divide(boxes - shift, scale)
         # Convert boxes to pixel coordinates on the original image
-        boxes = utils.denorm_boxes(boxes, original_image_shape[:2])
+        boxes = denorm_boxes(boxes, original_image_shape[:2])
 
         # Filter out detections with zero area. Happens in early training when
         # network weights are still random
@@ -2607,7 +2608,7 @@ class MaskRCNN(object):
             # TODO: Remove this after the notebook are refactored to not use it
             self.anchors = a
             # Normalize coordinates
-            self._anchor_cache[tuple(image_shape)] = utils.norm_boxes(a, image_shape[:2])
+            self._anchor_cache[tuple(image_shape)] = norm_boxes(a, image_shape[:2])
         return self._anchor_cache[tuple(image_shape)]
 
     def ancestor(self, tensor, name, checked=None):
